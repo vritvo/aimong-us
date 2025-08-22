@@ -8,9 +8,17 @@ from loguru import logger
 import argparse
 from rich.console import Console
 from rich.panel import Panel
-from langchain.prompts import ChatPromptTemplate,MessagesPlaceholder  # For defining prompts
-from langchain.schema import AIMessage, HumanMessage, SystemMessage  # For defining messages
+from langchain.prompts import (
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+)  # For defining prompts
+from langchain.schema import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+)  # For defining messages
 from langchain.chat_models import init_chat_model
+
 
 class Agent:
     def __init__(self, name, conf, is_player=False):
@@ -18,10 +26,8 @@ class Agent:
         self.is_player = is_player
         if not is_player:
             self.prompts = conf.prompts
-            self.personality = random.choice(
-                list(conf.prompts['personalities'].keys())
-            )
-            self.model_params = conf.model_params
+            self.personality = random.choice(list(conf.prompts["personalities"].keys()))
+            self.model_params = args.model
 
     def __repr__(self):
         if self.is_player:
@@ -44,29 +50,33 @@ class Agent:
     def get_next_message(self, state):
         _msg = None
         if self.is_player:
-            _msg = console.input(
-                f"[dim]You[/dim] ([bold blue]@{self.name}[/]) > ")
+            _msg = console.input(f"[dim]You[/dim] ([bold blue]@{self.name}[/]) > ")
         else:
             req_params = {
                 "messages": [
                     {"role": "system", "content": "Your name is " + self.name},
-                    {"role": "system",
-                        "content": self.prompts['personalities'
-                                                ][self.personality]},
-                    {"role": "assistant", "content": "My name is " +
-                        self.name + " and I am an AI."},
-                    {"role": "system", "content": self.prompts['system']},
-                    *self._rolling_messages_conversion(state.messages)
+                    {
+                        "role": "system",
+                        "content": self.prompts["personalities"][self.personality],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "My name is " + self.name + " and I am an AI.",
+                    },
+                    {"role": "system", "content": self.prompts["system"]},
+                    *self._rolling_messages_conversion(state.messages),
                 ]
             }
             chat_history = []
             system_message = SystemMessage(content=req_params["messages"][0]["content"])
-            
-            prompt = ChatPromptTemplate.from_messages([
-                system_message,
-                MessagesPlaceholder("chat_history"),
-            ])
-            
+
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    system_message,
+                    MessagesPlaceholder("chat_history"),
+                ]
+            )
+
             for message in req_params["messages"][1:]:
                 if message["role"] == "system":
                     chat_history.append(SystemMessage(content=message["content"]))
@@ -74,13 +84,12 @@ class Agent:
                     chat_history.append(AIMessage(content=message["content"]))
                 elif message["role"] == "user":
                     chat_history.append(HumanMessage(content=message["content"]))
-            
+
             logger.debug(f"{req_params=}")
-            
-            # Switch to whichever model.
-            #model = init_chat_model("gemini-2.5-pro", model_provider="google_genai")
-            model = init_chat_model("gpt-4o-mini", model_provider="openai")
-            
+            model = init_chat_model(
+                args.model, model_provider=model_info["AVAILABLE_MODELS"][args.model]
+            )
+
             responses = model.invoke(prompt.format(chat_history=chat_history))
             _msg = responses.content
 
@@ -100,12 +109,12 @@ class GameState:
 class GameConfig:
     def __init__(self, fname):
         self._fname = fname
-        with open(fname, 'rb') as file:
+        with open(fname, "rb") as file:
             conf = tomllib.load(file)
             self.conf = conf
-        self.text = conf['text']
-        self.prompts = conf['prompts']
-        self.model_params = conf['model_params']
+        self.text = conf["text"]
+        self.prompts = conf["prompts"]
+        self.model_params = args.model
 
     def __repr__(self):
         return "GameConfig: " + self.conf.__repr__()
@@ -113,8 +122,7 @@ class GameConfig:
 
 def admin_message(m, state):
     style = "bold cyan"
-    console.print(
-        "\n[underline]ADMINISTRATOR[/underline]: " + m + "\n", style=style)
+    console.print("\n[underline]ADMINISTRATOR[/underline]: " + m + "\n", style=style)
     state.messages.append(("ADMINISTRATOR", m))
 
 
@@ -124,7 +132,7 @@ def message_to_player(m):
 
 
 def call_vote(state, conf):
-    _m = conf.text['vote_announcement']
+    _m = conf.text["vote_announcement"]
     admin_message(_m, state)
 
     _votes = {_n: 0 for _n in state.agents.keys()}
@@ -152,7 +160,7 @@ def main_game_loop(state, conf, kill_counter):
         logger.debug(f"Resetting kill countdown to {kill_counter}")
         cnt = kill_counter
         while cnt > 0:
-            _m = str(cnt) + conf.text['remaining_rounds']
+            _m = str(cnt) + conf.text["remaining_rounds"]
             admin_message(_m, state)
             for _, agent in state.agents.items():
                 _ = agent.get_next_message(state)
@@ -161,29 +169,27 @@ def main_game_loop(state, conf, kill_counter):
         _killed = call_vote(state, conf)
 
         if _killed.is_player:
-            message_to_player(conf.text['game_over'] + str(round))
+            message_to_player(conf.text["game_over"] + str(round))
             sys.exit(1)
 
-        _m = conf.text['kill_announcement'] + f"{_killed}\n"
-        _m += conf.text['remain_announcement'] + str(list(state.agents.keys()))
+        _m = conf.text["kill_announcement"] + f"{_killed}\n"
+        _m += conf.text["remain_announcement"] + str(list(state.agents.keys()))
         admin_message(_m, state)
 
         round += 1
 
-    message_to_player(conf.text['win'] + str(round))
+    message_to_player(conf.text["win"] + str(round))
 
 
 def run_game(num_ai=2, kill_counter=3):
-
     state = GameState()
-    conf = GameConfig('config.toml')
+    conf = GameConfig("config.toml")
     logger.debug(conf)
 
-    message_to_player(conf.text['welcome'])
+    message_to_player(conf.text["welcome"])
 
     # TODO better names (and in conf)
-    _names_pool = ["Eve", "Frank", "Gertrude",
-                   "Harriet", "Irene", "John", "Kelly"]
+    _names_pool = ["Eve", "Frank", "Gertrude", "Harriet", "Irene", "John", "Kelly"]
     for i in range(num_ai):
         _name = _names_pool.pop(0)
         state.agents[_name] = Agent(_name, conf)
@@ -191,23 +197,38 @@ def run_game(num_ai=2, kill_counter=3):
 
     logger.debug(f"{state.agents=}")
 
-    _m = conf.text['intro_announcement']
+    _m = conf.text["intro_announcement"]
     _m += f" The agents in the arena are: {list(state.agents.keys())}"
     admin_message(_m, state)
 
     main_game_loop(state, conf, kill_counter)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    fname = "models.toml"
+    with open(fname, "rb") as file:
+        model_info = tomllib.load(file)
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--log_level', type=str, default='WARNING',
-        help='Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)')
-    parser.add_argument('--n_ai', type=int, default=2,
-                        help='Number of AI players (1–5)')
-    parser.add_argument('--kill_count', type=int, default=2,
-                        help='Number of message rounds before vote (1–5)')
+        "--log_level",
+        type=str,
+        default="WARNING",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    )
+    parser.add_argument(
+        "--n_ai", type=int, default=2, help="Number of AI players (1–5)"
+    )
+    parser.add_argument(
+        "--kill_count",
+        type=int,
+        default=2,
+        help="Number of message rounds before vote (1–5)",
+    )
+
+    parser.add_argument(
+        "--model", type=str, default=list(model_info["AVAILABLE_MODELS"].keys())[0]
+    )
     args = parser.parse_args()
 
     logger.remove()
@@ -218,6 +239,14 @@ if __name__ == '__main__':
     MSG_HIST = 30
 
     load_dotenv()
+
+    if args.model in list(model_info["AVAILABLE_MODELS"].keys()):
+        print(args.model)
+    else:
+        args.model = list(model_info["AVAILABLE_MODELS"].keys())[0]
+        console.print(
+            f"\n[bold italic yellow]Warning: [/bold italic yellow] [yellow] Invalid Model input. Changing model to default: {args.model} [/]"
+        )
 
     try:
         run_game(num_ai=args.n_ai, kill_counter=args.kill_count)
