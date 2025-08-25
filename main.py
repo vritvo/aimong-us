@@ -1,33 +1,39 @@
-import sys
-import random
-import tomllib
-from openai import OpenAI
-from dotenv import load_dotenv
-import os
-from loguru import logger
 import argparse
-from rich.console import Console
-from rich.panel import Panel
+import random
+import sys
+import tomllib
+
+from dotenv import load_dotenv
 from langchain.prompts import (
     ChatPromptTemplate,
     MessagesPlaceholder,
 )  # For defining prompts
 from langchain.schema import (
     AIMessage,
-    HumanMessage,
     SystemMessage,
 )  # For defining messages
-from langchain.chat_models import init_chat_model
+from loguru import logger
+from rich.console import Console
+from rich.panel import Panel
 
 
 class Agent:
     def __init__(self, name, conf, is_player=False):
         self.name = name
         self.is_player = is_player
+
         if not is_player:
             self.prompts = conf.prompts
             self.personality = random.choice(list(conf.prompts["personalities"].keys()))
-            self.model_params = args.model
+            self.model_params = (
+                args.model
+            )  # TODO: Can we allow for different models at the agent level?
+
+        # # TODO: This should probably exist in __init__
+        # self.model = init_chat_model(
+        #     self.model_params,
+        #     model_provider=model_info["AVAILABLE_MODELS"][self.model_params],
+        # )
 
     def __repr__(self):
         if self.is_player:
@@ -52,45 +58,52 @@ class Agent:
         if self.is_player:
             _msg = console.input(f"[dim]You[/dim] ([bold blue]@{self.name}[/]) > ")
         else:
-            req_params = {
-                "messages": [
-                    {"role": "system", "content": "Your name is " + self.name},
-                    {
-                        "role": "system",
-                        "content": self.prompts["personalities"][self.personality],
-                    },
-                    {
-                        "role": "assistant",
-                        "content": "My name is " + self.name + " and I am an AI.",
-                    },
-                    {"role": "system", "content": self.prompts["system"]},
-                    *self._rolling_messages_conversion(state.messages),
-                ]
-            }
-            chat_history = []
-            system_message = SystemMessage(content=req_params["messages"][0]["content"])
+            # context = {
+            #     "messages": [
+            #         {"role": "system", "content": "Your name is " + self.name},
+            #         {
+            #             "role": "system",
+            #             "content": self.prompts["personalities"][self.personality],
+            #         },
+            #         {
+            #             "role": "assistant",
+            #             "content": "My name is " + self.name + " and I am an AI.",
+            #         },
+            #         {"role": "system", "content": self.prompts["system"]},
+            #         *self._rolling_messages_conversion(state.messages),
+            #     ]
+            # }
 
-            prompt = ChatPromptTemplate.from_messages(
+            prompt = ChatPromptTemplate(
                 [
-                    system_message,
+                    SystemMessage(content="Your name is " + self.name),
+                    SystemMessage(
+                        content=self.prompts["personalities"][self.personality]
+                    ),
                     MessagesPlaceholder("chat_history"),
                 ]
             )
 
-            for message in req_params["messages"][1:]:
-                if message["role"] == "system":
-                    chat_history.append(SystemMessage(content=message["content"]))
-                elif message["role"] == "assistant":
-                    chat_history.append(AIMessage(content=message["content"]))
-                elif message["role"] == "user":
-                    chat_history.append(HumanMessage(content=message["content"]))
+            # for message in req_params["messages"][1:]:
+            #     if message["role"] == "system":
+            #         chat_history.append(SystemMessage(content=message["content"]))
+            #     elif message["role"] == "assistant":
+            #         chat_history.append(AIMessage(content=message["content"]))
+            #     elif message["role"] == "user":
+            #         chat_history.append(HumanMessage(content=message["content"]))
+            context = [
+                AIMessage(content="My name is " + self.name + " and I am an AI."),
+                SystemMessage(content=self.prompts["system"]),
+                *self._rolling_messages_conversion(state.messages),
+            ]
 
-            logger.debug(f"{req_params=}")
-            model = init_chat_model(
-                args.model, model_provider=model_info["AVAILABLE_MODELS"][args.model]
-            )
+            logger.debug(f"{context=}")
+            # # TODO: Remove and uncomment in __init__
+            # model = init_chat_model(
+            #     args.model, model_provider=model_info["AVAILABLE_MODELS"][args.model]
+            # )
 
-            responses = model.invoke(prompt.format(chat_history=chat_history))
+            responses = prompt.invoke(chat_history=context)
             _msg = responses.content
 
             console.print(f"[bold]@[u]{self.name}[/u]:[/bold] [dim]{_msg}")
